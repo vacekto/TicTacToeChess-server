@@ -1,4 +1,5 @@
 import { Server, Socket } from "socket.io";
+import http from 'http'
 import {
     ServerToClientEvents,
     ClientToServerEvents,
@@ -8,20 +9,6 @@ import {
     TicTacToeGame,
     UTicTacToeGame
 } from 'shared'
-
-const io = new Server<
-    ClientToServerEvents,
-    ServerToClientEvents,
-    InterServerEvents,
-    SocketData
->({
-    cors: {
-        origin: "http://localhost:3000",
-    }
-});
-
-
-
 
 type TServerSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>
 
@@ -51,40 +38,80 @@ const leaveLobby = (socketId: string) => {
     }
 }
 
-io.on("connection", async (socket) => {
 
-    const sockets = await io.fetchSockets();
-    socket.on('test', () => {
-        console.log(sockets.map(soc => soc.data.username))
-        console.log('test from client')
-        socket.emit('test')
+const usernames = new Set<string>()
+
+
+const io = new Server<
+    ClientToServerEvents,
+    ServerToClientEvents,
+    InterServerEvents,
+    SocketData
+>({
+    cors: {
+        origin: "http://localhost:3000",
+    }
+});
+
+
+
+io.use(async (socket, next) => {
+    const username = socket.handshake.auth.username
+
+    if (!username) {
+        next(new Error('Username not provided'))
+        return
+    }
+
+    if (usernames.has(username)) {
+        next(new Error(`Username ${username} is already taken.`))
+        return
+    }
+    socket.data.username = username
+    usernames.add(username)
+    socket.emit('username_accepted', username)
+    io.emit('users_online_update', Array.from(usernames))
+
+    next()
+})
+
+
+io.on("connection", async (socket) => {
+    console.log(socket.data.username + ' connected')
+
+    socket.onAny(() => {
+        if (!socket.data.username) socket.disconnect(true)
     })
 
-    socket.on('setUsername', async (username) => {
-        console.log(username + ' wants to come here')
-        let status: 'ok' | 'error' = 'ok'
-        let message: 'This username is already taken' | 'Success' = 'Success'
 
+    socket.on('test', () => {
+        console.log('test 1')
+    })
 
-        const sockets = await io.fetchSockets();
-        const sameUsernameSocket = sockets.find(soc => soc.data.username === username)
+    socket.on('test', () => {
+        console.log('test 2')
+    })
 
-        if (
-            sameUsernameSocket &&
-            socket.data.username !== username
-        ) {
-            status = 'error'
-            message = 'This username is already taken'
-            socket.emit('setUsername', status, message, username)
+    socket.on('set_username', async (username) => {
+        if (socket.data.username === username) {
+            socket.emit('username_accepted', username)
             return
         }
 
+        if (usernames.has(username)) {
+            const errorMessage = `Username ${username} is already taken.`
+            socket.emit('username_denied', errorMessage)
+            return
+        }
+
+        usernames.delete(socket.data.username!)
         socket.data.username = username
-        console.log(socket.data.username + ' connected')
-        socket.emit('setUsername', status, message, username)
+        usernames.add(username)
+        socket.emit('username_accepted', username)
+        io.emit('users_online_update', Array.from(usernames))
     })
 
-    socket.on('joinLobby', (game) => {
+    socket.on('join_lobby', (game) => {
         console.log(game)
         if (!socket.data.username) return
         const opponent = lobby[game].shift()
@@ -109,19 +136,19 @@ io.on("connection", async (socket) => {
         const side1 = game === 'chess' ? 'w' : 'O'
         const side2 = game === 'chess' ? 'b' : 'X'
 
-        socket.emit('startGame',
+        socket.emit('start_game',
             game,
             opponent.data.username,
             side1
         )
-        socket.to(opponent.id).emit('startGame',
+        socket.to(opponent.id).emit('start_game',
             game,
             socket.data.username,
             side2
         )
     })
 
-    socket.on('gameMove', (move) => {
+    socket.on('game_move', (move) => {
         if (
             !socket.data.gameInstance ||
             !socket.data.gameRoom
@@ -130,25 +157,30 @@ io.on("connection", async (socket) => {
 
         socket.data.gameInstance.move(move)
         const stateUpdate = socket.data.gameInstance.state
-        socket.to(socket.data.gameRoom).emit('gameStateUpdate', stateUpdate, move)
+        socket.to(socket.data.gameRoom).emit('game_state_update', stateUpdate, move)
     })
 
-    socket.on('leaveGame', () => {
+    socket.on('leave_game', () => {
         console.log('opponent left')
         if (socket.data.gameRoom)
-            socket.to(socket.data.gameRoom).emit('opponentLeft')
+            socket.to(socket.data.gameRoom).emit('opponent_left')
         delete socket.data.gameInstance
         delete socket.data.gameRoom
     })
 
-    socket.on('leaveLobby', () => {
+    socket.on('leave_lobby', () => {
         leaveLobby(socket.id)
     })
 
-    socket.on('disconnect', () => {
+    socket.on('disconnecting', () => {
+        console.log(`${socket.data.username} disconnected`)
         leaveLobby(socket.id)
+        if (socket.data.username) {
+            usernames.delete(socket.data.username)
+            io.emit('users_online_update', Array.from(usernames))
+        }
         if (socket.data.gameRoom)
-            socket.to(socket.data.gameRoom).emit('opponentLeft')
+            socket.to(socket.data.gameRoom).emit('opponent_left')
     })
 });
 
