@@ -1,5 +1,5 @@
 import { Server, Socket } from "socket.io";
-import http from 'http'
+import { v4 as uuidv4 } from 'uuid';
 import {
     ServerToClientEvents,
     ClientToServerEvents,
@@ -7,7 +7,8 @@ import {
     SocketData,
     ChessGame,
     TicTacToeGame,
-    UTicTacToeGame
+    UTicTacToeGame,
+    TGameName
 } from 'shared'
 
 type TServerSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>
@@ -29,6 +30,37 @@ const lobby: {
     chess: []
 }
 
+interface IGameInvite {
+    id: string
+    invitee: string
+    sender: string
+    game: TGameName
+}
+
+
+const invitesSingleton = function () {
+    const _instance: IGameInvite[] = []
+
+    return {
+        get instance() {
+            return structuredClone(_instance) as IGameInvite[]
+        },
+
+        createInvite: function (invite: Omit<IGameInvite, 'id'>) {
+            const inviteId = uuidv4() as string
+            (invite as IGameInvite).id = inviteId
+            _instance.push(invite as IGameInvite)
+            setTimeout(() => this.removeInvite(inviteId), 5000)
+            return invite as IGameInvite
+        },
+
+        removeInvite: function (inviteId: string) {
+            const indexToRemove = _instance.findIndex(invite => invite.id === inviteId)
+            _instance.splice(indexToRemove, 1)
+        }
+    }
+}()
+
 
 const leaveLobby = (socketId: string) => {
     for (let game in lobby) {
@@ -39,7 +71,7 @@ const leaveLobby = (socketId: string) => {
 }
 
 
-const usernames = new Set<string>()
+const usernames = new Map<string, string>()
 
 
 const io = new Server<
@@ -67,10 +99,9 @@ io.use(async (socket, next) => {
         next(new Error(`Username ${username} is already taken.`))
         return
     }
+
     socket.data.username = username
-    usernames.add(username)
     socket.emit('username_accepted', username)
-    io.emit('users_online_update', Array.from(usernames))
 
     next()
 })
@@ -79,20 +110,28 @@ io.use(async (socket, next) => {
 io.on("connection", async (socket) => {
     console.log(socket.data.username + ' connected')
 
+    usernames.set(socket.data.username!, socket.id)
+    io.emit('users_online_update', Array.from(usernames.keys()))
+
     socket.onAny(() => {
         if (!socket.data.username) socket.disconnect(true)
     })
 
 
     socket.on('test', () => {
-        console.log('test 1')
+        const invite = invitesSingleton.createInvite({
+            game: 'chess',
+            invitee: 'cosikdosi',
+            sender: 'nekdo'
+        })
     })
 
-    socket.on('test', () => {
-        console.log('test 2')
+    socket.on('invite_player', (inviteeUsername, gameName) => {
+        console.log(inviteeUsername, gameName)
+
     })
 
-    socket.on('set_username', async (username) => {
+    socket.on('change_username', async (username) => {
         if (socket.data.username === username) {
             socket.emit('username_accepted', username)
             return
@@ -106,16 +145,14 @@ io.on("connection", async (socket) => {
 
         usernames.delete(socket.data.username!)
         socket.data.username = username
-        usernames.add(username)
+        usernames.set(username, socket.id)
         socket.emit('username_accepted', username)
-        io.emit('users_online_update', Array.from(usernames))
+        io.emit('users_online_update', Array.from(usernames.keys()))
     })
 
     socket.on('join_lobby', (game) => {
-        console.log(game)
-        if (!socket.data.username) return
         const opponent = lobby[game].shift()
-        if (!opponent || !opponent.data.username) {
+        if (!opponent) {
             lobby[game].push(socket)
             return
         }
@@ -123,7 +160,7 @@ io.on("connection", async (socket) => {
         leaveLobby(socket.id)
         leaveLobby(opponent.id)
 
-        const gameId = socket.id + opponent.id
+        const gameId = uuidv4()
         const instance = new games[game]
         socket.data.gameInstance = instance
         opponent.data.gameInstance = instance
@@ -138,12 +175,12 @@ io.on("connection", async (socket) => {
 
         socket.emit('start_game',
             game,
-            opponent.data.username,
+            opponent.data.username!,
             side1
         )
         socket.to(opponent.id).emit('start_game',
             game,
-            socket.data.username,
+            socket.data.username!,
             side2
         )
     })
@@ -177,7 +214,7 @@ io.on("connection", async (socket) => {
         leaveLobby(socket.id)
         if (socket.data.username) {
             usernames.delete(socket.data.username)
-            io.emit('users_online_update', Array.from(usernames))
+            io.emit('users_online_update', Array.from(usernames.keys()))
         }
         if (socket.data.gameRoom)
             socket.to(socket.data.gameRoom).emit('opponent_left')
