@@ -82,7 +82,7 @@ io.use((socket, next) => __awaiter(void 0, void 0, void 0, function* () {
 io.on("connection", (socket) => __awaiter(void 0, void 0, void 0, function* () {
     console.log(socket.data.username + ' connected');
     users.set(socket.data.username, socket);
-    io.emit('users_online_update', Array.from(users.keys()));
+    io.emit('online_users_update', Array.from(users.keys()));
     socket.onAny(() => {
         if (!socket.data.username)
             socket.disconnect(true);
@@ -107,7 +107,7 @@ io.on("connection", (socket) => __awaiter(void 0, void 0, void 0, function* () {
         socket.data.username = username;
         users.set(username, socket);
         socket.emit('username_accepted', username);
-        io.emit('users_online_update', Array.from(users.keys()));
+        io.emit('online_users_update', Array.from(users.keys()));
     }));
     socket.on('join_lobby', (gameName) => {
         const lobbyState = lobby.state;
@@ -160,7 +160,7 @@ io.on("connection", (socket) => __awaiter(void 0, void 0, void 0, function* () {
         console.log(`${socket.data.username} disconnected`);
         lobby.leaveLobby(socket.data.username);
         users.delete(socket.data.username);
-        io.emit('users_online_update', Array.from(users.keys()));
+        io.emit('online_users_update', Array.from(users.keys()));
         if (socket.data.gameRoom)
             socket.to(socket.data.gameRoom).emit('leave_game');
     });

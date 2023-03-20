@@ -8,17 +8,11 @@ import {
     ChessGame,
     TicTacToeGame,
     UTicTacToeGame,
-    TGameName
+    TGameName,
+    IGameInvite
 } from 'shared'
 
 type TServerSocket = Socket<ClientToServerEvents, ServerToClientEvents, InterServerEvents, SocketData>
-
-interface IGameInvite {
-    id: string
-    invitee: string
-    sender: string
-    game: TGameName
-}
 
 const games = {
     chess: ChessGame,
@@ -33,22 +27,24 @@ const lobby = function () {
         chess: [] as string[]
     }
 
+    const leaveLobby = (username: string) => {
+        for (let gameName in _instance) {
+            const index = _instance[(gameName as keyof typeof _instance)].indexOf(username)
+            if (index === -1) continue
+            _instance[(gameName as keyof typeof _instance)].splice(index, 1)
+        }
+    }
+
+    const joinLobby = (username: string, gameName: TGameName) => {
+        _instance[gameName].push(username)
+    }
+
     return {
         get state() {
             return structuredClone(_instance)
         },
-
-        leaveLobby(username: string) {
-            for (let gameName in _instance) {
-                const index = _instance[(gameName as keyof typeof _instance)].indexOf(username)
-                if (index === -1) continue
-                _instance[(gameName as keyof typeof _instance)].splice(index, 1)
-            }
-        },
-
-        joinLobby(username: string, gameName: TGameName) {
-            _instance[gameName].push(username)
-        }
+        leaveLobby,
+        joinLobby
     }
 }()
 
@@ -56,31 +52,83 @@ const lobby = function () {
 const gameInvites = function () {
     const _instance: IGameInvite[] = []
 
-    return {
-        get state() {
-            return structuredClone(_instance) as IGameInvite[]
-        },
+    const inviteTimers = new Map<string, NodeJS.Timeout>
 
-        createInvite: function (invite: Omit<IGameInvite, 'id'>) {
-            const inviteId = uuidv4() as string
-            (invite as IGameInvite).id = inviteId
-            _instance.push(invite as IGameInvite)
-            setTimeout(() => this.removeInvite(inviteId), 5000)
-            return invite as IGameInvite
-        },
+    const _createInvite = function (data: Omit<IGameInvite, 'id'>) {
+        const id = uuidv4();
+        (data as IGameInvite).id = id
+        const timer = setTimeout(() => removeInvite(id), 90000)
+        inviteTimers.set(id, timer)
+        _instance.push(structuredClone(data) as IGameInvite)
+        console.log(_instance)
+        return data as IGameInvite
+    }
 
-        removeInvite: function (inviteId: string) {
-            const indexToRemove = _instance.findIndex(invite => invite.id === inviteId)
-            _instance.splice(indexToRemove, 1)
+    const _resetTimer = function (inviteId: string) {
+        const oldTimer = inviteTimers.get(inviteId)
+        clearTimeout(oldTimer)
+        const newTimer = setTimeout(() => removeInvite(inviteId), 90000)
+        inviteTimers.set(inviteId, newTimer)
+    }
+
+    const removeInvitesContainingUsername = function (username: string) {
+        const senderInvites = getInvites({
+            sender: username
+        })
+
+        const inviteeInvites = getInvites({
+            invitee: username
+        })
+
+        for (let invite of [...senderInvites, ...inviteeInvites]) {
+            removeInvite(invite.id)
         }
+    }
+
+    const getInvites = function (filter?: Partial<IGameInvite>) {
+        const invites = structuredClone(_instance) as IGameInvite[]
+        if (!filter) return invites
+
+        const filteredInvites = invites.filter(invite => {
+            for (let prop in filter) {
+                if (
+                    invite[prop as keyof IGameInvite] !==
+                    filter[prop as keyof IGameInvite]
+                )
+                    return false
+            }
+            return true
+        })
+
+        return filteredInvites
+
+    }
+
+    const createInvite = function (data: Omit<IGameInvite, 'id'>) {
+        const invite = getInvites(data)[0]
+        if (invite) {
+            _resetTimer(invite.id)
+            return invite
+        }
+
+        return _createInvite(data)
+    }
+
+    const removeInvite = function (inviteId: string) {
+        const index = _instance.findIndex(invite => invite.id === inviteId)
+        if (index !== -1) _instance.splice(index, 1)
+    }
+
+    return {
+        getInvites,
+        createInvite,
+        removeInvite,
+        removeInvitesContainingUsername
     }
 }()
 
 
-
-
-
-const users = new Map<string, TServerSocket>()
+const connectedUsers = new Map<string, TServerSocket>()
 
 
 const io = new Server<
@@ -104,7 +152,7 @@ io.use(async (socket, next) => {
         return
     }
 
-    if (users.has(username)) {
+    if (connectedUsers.has(username)) {
         next(new Error(`Username ${username} is already taken.`))
         return
     }
@@ -118,9 +166,8 @@ io.use(async (socket, next) => {
 
 io.on("connection", async (socket) => {
     console.log(socket.data.username + ' connected')
-
-    users.set(socket.data.username!, socket)
-    io.emit('users_online_update', Array.from(users.keys()))
+    connectedUsers.set(socket.data.username!, socket)
+    io.emit('online_users_update', Array.from(connectedUsers.keys()))
 
     socket.onAny(() => {
         if (!socket.data.username) socket.disconnect(true)
@@ -128,13 +175,37 @@ io.on("connection", async (socket) => {
 
 
     socket.on('test', () => {
-        console.log(socket.listeners('leave_game'))
+        console.log(gameInvites.getInvites())
 
     })
 
     socket.on('invite_player', (inviteeUsername, gameName) => {
-        console.log(inviteeUsername, gameName)
+        const invitee = connectedUsers.get(inviteeUsername)
+        if (!invitee) return
+        const invite = gameInvites.createInvite({
+            game: gameName,
+            invitee: inviteeUsername,
+            sender: socket.data.username!
+        })
 
+        const test = gameInvites.createInvite({
+            game: gameName,
+            invitee: inviteeUsername,
+            sender: socket.data.username!
+        })
+
+        socket.to(invitee.id).emit("game_invite", invite)
+    })
+
+    socket.on('fetch_game_invites', () => {
+        const invites = gameInvites.getInvites({
+            invitee: socket.data.username
+        })
+        socket.emit("game_invites_update", invites)
+    })
+
+    socket.on('fetch_online_users', () => {
+        socket.emit('online_users_update', Array.from(connectedUsers.keys()))
     })
 
     socket.on('change_username', async (username) => {
@@ -143,17 +214,55 @@ io.on("connection", async (socket) => {
             return
         }
 
-        if (users.has(username)) {
+        if (connectedUsers.has(username)) {
             const errorMessage = `Username ${username} is already taken.`
             socket.emit('username_denied', errorMessage)
             return
         }
 
-        users.delete(socket.data.username!)
+        connectedUsers.delete(socket.data.username!)
+        lobby.leaveLobby(socket.data.username!)
+        gameInvites.removeInvitesContainingUsername(socket.data.username!)
+
         socket.data.username = username
-        users.set(username, socket)
+        connectedUsers.set(username, socket)
         socket.emit('username_accepted', username)
-        io.emit('users_online_update', Array.from(users.keys()))
+        io.emit('online_users_update', Array.from(connectedUsers.keys()))
+    })
+
+    socket.on('accept_invite', (inviteId) => {
+        const invite = gameInvites.getInvites({
+            id: inviteId
+        })[0]
+        if (!invite) return
+        const opponent = connectedUsers.get(invite.sender)
+        if (!opponent) return
+        const gameInstance = new games[invite.game]
+        const gameRoom = uuidv4()
+        lobby.leaveLobby(socket.data.username!)
+        lobby.leaveLobby(opponent.data.username!)
+        socket.data.gameInstance = gameInstance
+        opponent.data.gameInstance = gameInstance
+        socket.data.gameRoom = gameRoom
+        opponent.data.gameRoom = gameRoom
+
+        socket.join(gameRoom)
+        opponent.join(gameRoom)
+
+        const side1 = invite.game === 'chess' ? 'w' : 'O'
+        const side2 = invite.game === 'chess' ? 'b' : 'X'
+
+        socket.emit('start_game',
+            invite.game,
+            opponent.data.username!,
+            side1
+        )
+        socket.to(opponent.id).emit('start_game',
+            invite.game,
+            socket.data.username!,
+            side2
+        )
+
     })
 
     socket.on('join_lobby', (gameName) => {
@@ -166,7 +275,7 @@ io.on("connection", async (socket) => {
         if (opponentUsername === socket.data.username) return
 
         lobby.leaveLobby(opponentUsername)
-        const opponent = users.get(opponentUsername)
+        const opponent = connectedUsers.get(opponentUsername)
         if (!opponent) return
         const gameRoom = uuidv4()
         const instance = new games[gameName]
@@ -214,7 +323,6 @@ io.on("connection", async (socket) => {
     })
 
     socket.on('leave_game', () => {
-        console.log('leave game')
         if (socket.data.gameRoom)
             socket.to(socket.data.gameRoom).emit('leave_game')
         delete socket.data.gameInstance
@@ -223,9 +331,12 @@ io.on("connection", async (socket) => {
 
     socket.on('disconnecting', () => {
         console.log(`${socket.data.username} disconnected`)
+        if (socket.data.gameRoom)
+            socket.to(socket.data.gameRoom).emit('leave_game')
         lobby.leaveLobby(socket.data.username!)
-        users.delete(socket.data.username!)
-        io.emit('users_online_update', Array.from(users.keys()))
+        gameInvites.removeInvitesContainingUsername(socket.data.username!)
+        connectedUsers.delete(socket.data.username!)
+        io.emit('online_users_update', Array.from(connectedUsers.keys()))
 
         if (socket.data.gameRoom)
             socket.to(socket.data.gameRoom).emit('leave_game')
@@ -233,4 +344,3 @@ io.on("connection", async (socket) => {
 });
 
 io.listen(3001);
-console.log('server up and running')
