@@ -60,7 +60,6 @@ const gameInvites = function () {
         const timer = setTimeout(() => removeInvite(id), 90000)
         inviteTimers.set(id, timer)
         _instance.push(structuredClone(data) as IGameInvite)
-        console.log(_instance)
         return data as IGameInvite
     }
 
@@ -234,7 +233,10 @@ io.on("connection", async (socket) => {
         const invite = gameInvites.getInvites({
             id: inviteId
         })[0]
-        if (!invite) return
+        if (!invite) {
+            socket.emit('invite_expired', inviteId)
+            return
+        }
         const opponent = connectedUsers.get(invite.sender)
         if (!opponent) return
         const gameInstance = new games[invite.game]
@@ -263,6 +265,13 @@ io.on("connection", async (socket) => {
             side2
         )
 
+    })
+
+    socket.on('decline_invite', inviteId => {
+        gameInvites.removeInvite(inviteId)
+        const invite = gameInvites.getInvites({ id: inviteId })[0]
+        if (!invite) return
+        socket.emit('invite_declined', invite)
     })
 
     socket.on('join_lobby', (gameName) => {
