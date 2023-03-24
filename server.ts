@@ -268,9 +268,11 @@ io.on("connection", async (socket) => {
     })
 
     socket.on('decline_invite', inviteId => {
-        gameInvites.removeInvite(inviteId)
         const invite = gameInvites.getInvites({ id: inviteId })[0]
         if (!invite) return
+        gameInvites.removeInvite(inviteId)
+        const sender = connectedUsers.get(invite.sender)
+        if (!sender) return
         socket.emit('invite_declined', invite)
     })
 
