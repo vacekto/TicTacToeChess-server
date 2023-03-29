@@ -174,7 +174,7 @@ io.on("connection", async (socket) => {
 
 
     socket.on('test', () => {
-        console.log(gameInvites.getInvites())
+        console.log(lobby.state)
 
     })
 
