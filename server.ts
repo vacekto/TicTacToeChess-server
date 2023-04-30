@@ -49,82 +49,82 @@ const lobby = function () {
 }()
 
 
-const gameInvites = function () {
-    const _instance: IGameInvite[] = []
+// const gameInvites = function () {
+//     const _instance: IGameInvite[] = []
 
-    const inviteTimers = new Map<string, NodeJS.Timeout>
+//     const inviteTimers = new Map<string, NodeJS.Timeout>
 
-    const _createInvite = function (data: Omit<IGameInvite, 'id'>) {
-        const id = uuidv4();
-        (data as IGameInvite).id = id
-        const timer = setTimeout(() => removeInvite(id), 90000)
-        inviteTimers.set(id, timer)
-        _instance.push(structuredClone(data) as IGameInvite)
-        return data as IGameInvite
-    }
+//     const _createInvite = function (data: Omit<IGameInvite, 'id'>) {
+//         const id = uuidv4();
+//         (data as IGameInvite).id = id
+//         const timer = setTimeout(() => removeInvite(id), 90000)
+//         inviteTimers.set(id, timer)
+//         _instance.push(structuredClone(data) as IGameInvite)
+//         return data as IGameInvite
+//     }
 
-    const _resetTimer = function (inviteId: string) {
-        const oldTimer = inviteTimers.get(inviteId)
-        clearTimeout(oldTimer)
-        const newTimer = setTimeout(() => removeInvite(inviteId), 90000)
-        inviteTimers.set(inviteId, newTimer)
-    }
+//     const _resetTimer = function (inviteId: string) {
+//         const oldTimer = inviteTimers.get(inviteId)
+//         clearTimeout(oldTimer)
+//         const newTimer = setTimeout(() => removeInvite(inviteId), 90000)
+//         inviteTimers.set(inviteId, newTimer)
+//     }
 
-    const removeInvitesContainingUsername = function (username: string) {
-        const senderInvites = getInvites({
-            sender: username
-        })
+//     const removeInvitesContainingUsername = function (username: string) {
+//         const senderInvites = getInvites({
+//             sender: username
+//         })
 
-        const inviteeInvites = getInvites({
-            invitee: username
-        })
+//         const inviteeInvites = getInvites({
+//             invitee: username
+//         })
 
-        for (let invite of [...senderInvites, ...inviteeInvites]) {
-            removeInvite(invite.id)
-        }
-    }
+//         for (let invite of [...senderInvites, ...inviteeInvites]) {
+//             removeInvite(invite.id)
+//         }
+//     }
 
-    const getInvites = function (filter?: Partial<IGameInvite>) {
-        const invites = structuredClone(_instance) as IGameInvite[]
-        if (!filter) return invites
+//     const getInvites = function (filter?: Partial<IGameInvite>) {
+//         const invites = structuredClone(_instance) as IGameInvite[]
+//         if (!filter) return invites
 
-        const filteredInvites = invites.filter(invite => {
-            for (let prop in filter) {
-                if (
-                    invite[prop as keyof IGameInvite] !==
-                    filter[prop as keyof IGameInvite]
-                )
-                    return false
-            }
-            return true
-        })
+//         const filteredInvites = invites.filter(invite => {
+//             for (let prop in filter) {
+//                 if (
+//                     invite[prop as keyof IGameInvite] !==
+//                     filter[prop as keyof IGameInvite]
+//                 )
+//                     return false
+//             }
+//             return true
+//         })
 
-        return filteredInvites
+//         return filteredInvites
 
-    }
+//     }
 
-    const createInvite = function (data: Omit<IGameInvite, 'id'>) {
-        const invite = getInvites(data)[0]
-        if (invite) {
-            _resetTimer(invite.id)
-            return invite
-        }
+//     const createInvite = function (data: Omit<IGameInvite, 'id'>) {
+//         const invite = getInvites(data)[0]
+//         if (invite) {
+//             _resetTimer(invite.id)
+//             return invite
+//         }
+//         const newInvite = _createInvite(data)
+//         return newInvite
+//     }
 
-        return _createInvite(data)
-    }
+//     const removeInvite = function (inviteId: string) {
+//         const index = _instance.findIndex(invite => invite.id === inviteId)
+//         if (index !== -1) _instance.splice(index, 1)
+//     }
 
-    const removeInvite = function (inviteId: string) {
-        const index = _instance.findIndex(invite => invite.id === inviteId)
-        if (index !== -1) _instance.splice(index, 1)
-    }
-
-    return {
-        getInvites,
-        createInvite,
-        removeInvite,
-        removeInvitesContainingUsername
-    }
-}()
+//     return {
+//         getInvites,
+//         createInvite,
+//         removeInvite,
+//         removeInvitesContainingUsername
+//     }
+// }()
 
 
 const connectedUsers = new Map<string, TServerSocket>()
@@ -165,6 +165,7 @@ io.use(async (socket, next) => {
 
 io.on("connection", async (socket) => {
     console.log(socket.data.username + ' connected')
+
     connectedUsers.set(socket.data.username!, socket)
     io.emit('online_users_update', Array.from(connectedUsers.keys()))
 
@@ -178,29 +179,11 @@ io.on("connection", async (socket) => {
 
     })
 
-    socket.on('invite_player', (inviteeUsername, gameName) => {
-        const invitee = connectedUsers.get(inviteeUsername)
+    socket.on('game_invite', (invite: IGameInvite) => {
+        const invitee = connectedUsers.get(invite.invitee)
         if (!invitee) return
-        const invite = gameInvites.createInvite({
-            game: gameName,
-            invitee: inviteeUsername,
-            sender: socket.data.username!
-        })
-
-        const test = gameInvites.createInvite({
-            game: gameName,
-            invitee: inviteeUsername,
-            sender: socket.data.username!
-        })
 
         socket.to(invitee.id).emit("game_invite", invite)
-    })
-
-    socket.on('fetch_game_invites', () => {
-        const invites = gameInvites.getInvites({
-            invitee: socket.data.username
-        })
-        socket.emit("game_invites_update", invites)
     })
 
     socket.on('fetch_online_users', () => {
@@ -219,24 +202,15 @@ io.on("connection", async (socket) => {
             return
         }
 
-        connectedUsers.delete(socket.data.username!)
         lobby.leaveLobby(socket.data.username!)
-        gameInvites.removeInvitesContainingUsername(socket.data.username!)
-
+        connectedUsers.delete(socket.data.username!)
         socket.data.username = username
         connectedUsers.set(username, socket)
         socket.emit('username_accepted', username)
         io.emit('online_users_update', Array.from(connectedUsers.keys()))
     })
 
-    socket.on('accept_invite', (inviteId) => {
-        const invite = gameInvites.getInvites({
-            id: inviteId
-        })[0]
-        if (!invite) {
-            socket.emit('invite_expired', inviteId)
-            return
-        }
+    socket.on('accept_invite', (invite: IGameInvite) => {
         const opponent = connectedUsers.get(invite.sender)
         if (!opponent) return
         const gameInstance = new games[invite.game]
@@ -267,14 +241,7 @@ io.on("connection", async (socket) => {
 
     })
 
-    socket.on('decline_invite', inviteId => {
-        const invite = gameInvites.getInvites({ id: inviteId })[0]
-        if (!invite) return
-        gameInvites.removeInvite(inviteId)
-        const sender = connectedUsers.get(invite.sender)
-        if (!sender) return
-        socket.emit('invite_declined', invite)
-    })
+
 
     socket.on('join_lobby', (gameName) => {
         const lobbyState = lobby.state
@@ -345,7 +312,6 @@ io.on("connection", async (socket) => {
         if (socket.data.gameRoom)
             socket.to(socket.data.gameRoom).emit('leave_game')
         lobby.leaveLobby(socket.data.username!)
-        gameInvites.removeInvitesContainingUsername(socket.data.username!)
         connectedUsers.delete(socket.data.username!)
         io.emit('online_users_update', Array.from(connectedUsers.keys()))
 
