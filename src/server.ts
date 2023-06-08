@@ -1,5 +1,5 @@
+import { fork } from 'child_process';
 import { Server, Socket } from "socket.io";
-import { v4 as uuidv4 } from 'uuid';
 import {
     ServerToClientEvents,
     ClientToServerEvents,
@@ -13,12 +13,12 @@ import {
     TGameInstance,
     TGameSide
 } from 'shared'
+import { v4 as uuidv4 } from 'uuid';
 import {
     isChessMove,
     isTicTacToeMove,
     isUTicTacToeMove
 } from './util/typeGuards'
-
 
 type TServerSocket = Socket<
     ClientToServerEvents,
@@ -26,7 +26,6 @@ type TServerSocket = Socket<
     InterServerEvents,
     SocketData
 >
-
 
 const lobby = function () {
     const _instance: Record<TGameName, string[]> = {
@@ -66,21 +65,20 @@ const lobby = function () {
     }
 }()
 
-
 const connectedUsers = new Map<string, TServerSocket>()
+
 
 const io = new Server<
     ClientToServerEvents,
     ServerToClientEvents,
     InterServerEvents,
     SocketData
->({
-    cors: {
-        origin: "http://localhost:3000",
-    }
-});
-
-
+>(
+    {
+        cors: {
+            origin: "*",
+        }
+    });
 
 io.use(async (socket, next) => {
     const username = socket.handshake.auth.username
@@ -101,7 +99,6 @@ io.use(async (socket, next) => {
     next()
 })
 
-
 io.on("connection", async (socket) => {
     console.log(socket.data.username + ' connected')
 
@@ -114,8 +111,36 @@ io.on("connection", async (socket) => {
 
 
     socket.on('test', () => {
-        const haha = socket.data.game?.roomId
-        io.in(haha!).emit('test')
+        const child = fork(__dirname + '/test')
+
+        child.on('message', (msg) => {
+            console.log(msg.toLocaleString)
+        })
+        // , (error, stdout, stderr) => {
+        //     if (error) {
+        //         console.error(`error: ${error.message}`);
+        //         return;
+        //     }
+
+        //     if (stderr) {
+        //         console.error(`stderr: ${stderr}`);
+        //         return;
+        //     }
+
+        //     console.log(`stdout:\n${stdout}`);
+        // }).on('message', message => {
+        //     console.log(message)
+        // })
+    })
+
+    socket.on('get_ai_move', (game, props) => {
+        if (game === 'ticTacToe') { 
+            
+        }
+        if (game === 'chess') {
+
+        }
+        if (game === 'uTicTacToe') { }
     })
 
     socket.on('game_invite', (invite: IGameInvite) => {
@@ -373,8 +398,6 @@ io.on("connection", async (socket) => {
         connectedUsers.delete(socket.data.username!)
         io.emit('online_users_update', Array.from(connectedUsers.keys()))
     })
-});
+})
 
 io.listen(3001);
-
-console.log('server running at port 3000')
