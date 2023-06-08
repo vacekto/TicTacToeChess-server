@@ -1,106 +1,29 @@
-import { fork } from 'child_process';
-import { Server, Socket } from "socket.io";
 import {
-    ServerToClientEvents,
-    ClientToServerEvents,
-    InterServerEvents,
-    SocketData,
     ChessGame,
     TicTacToeGame,
     UTicTacToeGame,
-    TGameName,
     IGameInvite,
     TGameInstance,
     TGameSide
-} from 'shared'
+} from 'tic-tac-toe-chess-shared'
 import { v4 as uuidv4 } from 'uuid';
 import {
     isChessMove,
     isTicTacToeMove,
     isUTicTacToeMove
 } from './util/typeGuards'
-
-type TServerSocket = Socket<
-    ClientToServerEvents,
-    ServerToClientEvents,
-    InterServerEvents,
-    SocketData
->
-
-const lobby = function () {
-    const _instance: Record<TGameName, string[]> = {
-        ticTacToe: [],
-        uTicTacToe: [],
-        chess: []
-    }
-
-    const leaveLobby = (username: string) => {
-        for (let gameName in _instance) {
-            _instance[gameName as TGameName] = _instance[gameName as TGameName]
-                .filter(name => name !== username)
-        }
-    }
-
-    const joinLobby = (username: string, gameName: TGameName) => {
-        const index = _instance[gameName].indexOf(username)
-        if (index === -1) {
-            _instance[gameName].push(username)
-        }
-    }
+import { ExtendedError } from "socket.io/dist/namespace";
+import {
+    TIOServer,
+    TIOSocket,
+    connectedUsers,
+    lobby
+} from "./socketServer";
 
 
-    const findOpponent = (username: string, game: TGameName) => {
-        const playersArr = _instance[game]
-        for (const palyerUsername of playersArr) {
-            if (palyerUsername === username) continue
-            return palyerUsername
-        }
-    }
+type TSocketListener = (io: TIOServer) => (socket: TIOSocket) => void
 
-
-    return {
-        findOpponent,
-        leaveLobby,
-        joinLobby,
-    }
-}()
-
-const connectedUsers = new Map<string, TServerSocket>()
-
-
-const io = new Server<
-    ClientToServerEvents,
-    ServerToClientEvents,
-    InterServerEvents,
-    SocketData
->(
-    {
-        cors: {
-            origin: "*",
-        }
-    });
-
-io.use(async (socket, next) => {
-    const username = socket.handshake.auth.username
-
-    if (!username) {
-        next(new Error('Username not provided'))
-        return
-    }
-
-    if (connectedUsers.has(username)) {
-        next(new Error(`Username ${username} is already taken.`))
-        return
-    }
-
-    socket.data.username = username
-    socket.emit('username_accepted', username)
-
-    next()
-})
-
-io.on("connection", async (socket) => {
-    console.log(socket.data.username + ' connected')
+export const socketListener: TSocketListener = (io) => (socket) => {
 
     connectedUsers.set(socket.data.username!, socket)
     io.emit('online_users_update', Array.from(connectedUsers.keys()))
@@ -110,32 +33,9 @@ io.on("connection", async (socket) => {
     })
 
 
-    socket.on('test', () => {
-        const child = fork(__dirname + '/test')
-
-        child.on('message', (msg) => {
-            console.log(msg.toLocaleString)
-        })
-        // , (error, stdout, stderr) => {
-        //     if (error) {
-        //         console.error(`error: ${error.message}`);
-        //         return;
-        //     }
-
-        //     if (stderr) {
-        //         console.error(`stderr: ${stderr}`);
-        //         return;
-        //     }
-
-        //     console.log(`stdout:\n${stdout}`);
-        // }).on('message', message => {
-        //     console.log(message)
-        // })
-    })
-
     socket.on('get_ai_move', (game, props) => {
-        if (game === 'ticTacToe') { 
-            
+        if (game === 'ticTacToe') {
+
         }
         if (game === 'chess') {
 
@@ -390,7 +290,6 @@ io.on("connection", async (socket) => {
     })
 
     socket.on('disconnecting', () => {
-        console.log(`${socket.data.username} disconnected`)
         if (socket.data.game)
             io.in(socket.data.game.roomId).emit('leave_game')
 
@@ -398,6 +297,28 @@ io.on("connection", async (socket) => {
         connectedUsers.delete(socket.data.username!)
         io.emit('online_users_update', Array.from(connectedUsers.keys()))
     })
-})
+}
 
-io.listen(3001);
+type TSocketMiddleware = (
+    socket: TIOSocket,
+    next: (err?: ExtendedError | undefined) => void
+) => void
+
+const socketAuthMiddleware: TSocketMiddleware = async (socket, next) => {
+    const username = socket.handshake.auth.username
+
+    if (!username) {
+        next(new Error('Username not provided'))
+        return
+    }
+
+    if (connectedUsers.has(username)) {
+        next(new Error(`Username ${username} is already taken.`))
+        return
+    }
+
+    socket.data.username = username
+    socket.emit('username_accepted', username)
+
+    next()
+}

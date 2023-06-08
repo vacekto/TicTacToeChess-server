@@ -2,7 +2,7 @@ import {
     IChessMove,
     ITicTacToeMove,
     IUTicTacToeMove,
-} from "shared"
+} from 'tic-tac-toe-chess-shared'
 
 export const isChessMove = (move: any): move is IChessMove => {
     if (typeof move !== 'object') return false
