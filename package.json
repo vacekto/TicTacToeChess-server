@@ -6,7 +6,7 @@
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "npm link shared && ts-node-dev --respawn --transpile-only src/httpServer.ts",
-    "build": "npm i && npx tsc && mkdir ./dist/client/build && cp -r ./src/client/build ./dist/client/build",
+    "build": "npm i && npx tsc && mkdir -p ./dist/client/build && cp -r ./src/client/build ./dist/client/build",
     "start": "node dist/httpServer.js"
   },
   "keywords": [],
