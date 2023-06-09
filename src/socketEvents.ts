@@ -5,7 +5,7 @@ import {
     IGameInvite,
     TGameInstance,
     TGameSide
-} from 'tic-tac-toe-chess-shared'
+} from 'tic_tac_toe_chess_shared'
 import { v4 as uuidv4 } from 'uuid';
 import {
     isChessMove,

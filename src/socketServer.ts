@@ -1,5 +1,5 @@
 import { ExtendedError } from "socket.io/dist/namespace"
-import { ClientToServerEvents, InterServerEvents, ServerToClientEvents, SocketData } from "tic-tac-toe-chess-shared"
+import { ClientToServerEvents, InterServerEvents, ServerToClientEvents, SocketData } from "tic_tac_toe_chess_shared"
 import { Server, Socket } from "socket.io"
 import { initLobby } from "./util/data"
 import { Server as HttpServer, IncomingMessage, ServerResponse } from "http"

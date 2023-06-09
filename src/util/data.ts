@@ -1,4 +1,4 @@
-import { TGameName } from "tic-tac-toe-chess-shared"
+import { TGameName } from "tic_tac_toe_chess_shared"
 
 export const initLobby = () => {
     const _instance: Record<TGameName, string[]> = {
