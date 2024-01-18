@@ -32,17 +32,6 @@ export const socketListener: TSocketListener = (io) => (socket) => {
         if (!socket.data.username) socket.disconnect(true)
     })
 
-
-    socket.on('get_ai_move', (game, props) => {
-        if (game === 'ticTacToe') {
-
-        }
-        if (game === 'chess') {
-
-        }
-        if (game === 'uTicTacToe') { }
-    })
-
     socket.on('game_invite', (invite: IGameInvite) => {
         const inviteeSocket = connectedUsers.get(invite.inviteeUsername)
         if (!inviteeSocket) return
